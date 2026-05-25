@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="760" viewBox="0 0 1080 760" role="img" aria-labelledby="title desc">
+  <title id="title">Hand composition by number of players</title>
+  <desc id="desc">Radial chart showing the distribution of poker hands by num_players, including percentages and total hands.</desc>
+  <style>
+    text {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      fill: #111827;
+    }
+    .title {
+      font-size: 34px;
+      font-weight: 750;
+    }
+    .subtitle {
+      font-size: 16px;
+      fill: #4b5563;
+    }
+    .center-total {
+      font-size: 38px;
+      font-weight: 800;
+    }
+    .center-caption {
+      font-size: 15px;
+      fill: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+    }
+    .slice-label {
+      font-size: 15px;
+      font-weight: 700;
+      fill: #374151;
+    }
+    .legend-title {
+      font-size: 18px;
+      font-weight: 750;
+    }
+    .legend-label {
+      font-size: 16px;
+      font-weight: 650;
+    }
+    .legend-value {
+      font-size: 15px;
+      fill: #4b5563;
+    }
+    .source {
+      font-size: 12px;
+      fill: #6b7280;
+    }
+  </style>
+  <rect width="100%" height="100%" fill="#f8fafc" />
+  <text x="52" y="68" class="title">Hand Composition by Number of Players</text>
+  <text x="52" y="98" class="subtitle">Distribution of cleaned poker hands grouped by num_players</text>
+  <g>
+    <path d="M 360.000 140.000 A 250 250 0 0 1 609.571 375.364 L 491.774 382.272 A 132 132 0 0 0 360.000 258.000 Z" fill="#2563eb" stroke="#ffffff" stroke-width="3"><title>2 players: 1,131,246 hands (24.07%)</title></path><path d="M 609.571 375.364 A 250 250 0 0 1 506.087 592.876 L 437.134 497.118 A 132 132 0 0 0 491.774 382.272 Z" fill="#16a34a" stroke="#ffffff" stroke-width="3"><title>3 players: 752,031 hands (16.00%)</title></path><path d="M 506.087 592.876 A 250 250 0 0 1 322.773 637.213 L 340.344 520.528 A 132 132 0 0 0 437.134 497.118 Z" fill="#dc2626" stroke="#ffffff" stroke-width="3"><title>4 players: 578,661 hands (12.31%)</title></path><path d="M 322.773 637.213 A 250 250 0 0 1 187.219 570.684 L 268.772 485.401 A 132 132 0 0 0 340.344 520.528 Z" fill="#9333ea" stroke="#ffffff" stroke-width="3"><title>5 players: 459,000 hands (9.77%)</title></path><path d="M 187.219 570.684 A 250 250 0 0 1 118.849 455.925 L 232.672 424.809 A 132 132 0 0 0 268.772 485.401 Z" fill="#ea580c" stroke="#ffffff" stroke-width="3"><title>6 players: 404,628 hands (8.61%)</title></path><path d="M 118.849 455.925 A 250 250 0 0 1 114.728 341.609 L 230.496 364.449 A 132 132 0 0 0 232.672 424.809 Z" fill="#0891b2" stroke="#ffffff" stroke-width="3"><title>7 players: 345,348 hands (7.35%)</title></path><path d="M 114.728 341.609 A 250 250 0 0 1 152.582 250.437 L 250.483 316.311 A 132 132 0 0 0 230.496 364.449 Z" fill="#4f46e5" stroke="#ffffff" stroke-width="3"><title>8 players: 297,344 hands (6.33%)</title></path><path d="M 152.582 250.437 A 250 250 0 0 1 215.213 186.195 L 283.552 282.391 A 132 132 0 0 0 250.483 316.311 Z" fill="#65a30d" stroke="#ffffff" stroke-width="3"><title>9 players: 269,930 hands (5.74%)</title></path><path d="M 215.213 186.195 A 250 250 0 0 1 358.052 140.008 L 358.972 258.004 A 132 132 0 0 0 283.552 282.391 Z" fill="#be123c" stroke="#ffffff" stroke-width="3"><title>10 players: 456,243 hands (9.71%)</title></path><path d="M 358.052 140.008 A 250 250 0 0 1 359.184 140.001 L 359.569 258.001 A 132 132 0 0 0 358.972 258.004 Z" fill="#7c3aed" stroke="#ffffff" stroke-width="3"><title>11 players: 3,385 hands (0.07%)</title></path><path d="M 359.184 140.001 A 250 250 0 0 1 360.000 140.000 L 360.000 258.000 A 132 132 0 0 0 359.569 258.001 Z" fill="#0d9488" stroke="#ffffff" stroke-width="3"><title>12 players: 2,443 hands (0.05%)</title></path>
+  </g>
+  <circle cx="360" cy="390" r="124" fill="#f8fafc" />
+  <text x="360" y="382" text-anchor="middle" class="center-total">4,700,259</text>
+  <text x="360" y="414" text-anchor="middle" class="center-caption">Total Hands</text>
+  <g>
+    <text x="567.2" y="170.3" text-anchor="start" class="slice-label">2p 24.1%</text><text x="632.7" y="519.7" text-anchor="start" class="slice-label">3p 16.0%</text><text x="431.0" y="683.5" text-anchor="start" class="slice-label">4p 12.3%</text><text x="226.9" y="661.1" text-anchor="end" class="slice-label">5p 9.8%</text><text x="100.6" y="544.6" text-anchor="end" class="slice-label">6p 8.6%</text><text x="58.2" y="400.9" text-anchor="end" class="slice-label">7p 7.3%</text><text x="81.1" y="274.2" text-anchor="end" class="slice-label">8p 6.3%</text><text x="143.8" y="179.2" text-anchor="end" class="slice-label">9p 5.7%</text><text x="267.1" y="102.6" text-anchor="end" class="slice-label">10p 9.7%</text>
+  </g>
+  <text x="690" y="140" class="legend-title">num_players</text>
+  <g>
+    <rect x="690" y="174" width="18" height="18" rx="3" fill="#2563eb" /><text x="724" y="190" class="legend-label">2 players</text><text x="880" y="190" class="legend-value">1,131,246 (24.07%)</text><rect x="690" y="220" width="18" height="18" rx="3" fill="#16a34a" /><text x="724" y="236" class="legend-label">3 players</text><text x="880" y="236" class="legend-value">752,031 (16.00%)</text><rect x="690" y="266" width="18" height="18" rx="3" fill="#dc2626" /><text x="724" y="282" class="legend-label">4 players</text><text x="880" y="282" class="legend-value">578,661 (12.31%)</text><rect x="690" y="312" width="18" height="18" rx="3" fill="#9333ea" /><text x="724" y="328" class="legend-label">5 players</text><text x="880" y="328" class="legend-value">459,000 (9.77%)</text><rect x="690" y="358" width="18" height="18" rx="3" fill="#ea580c" /><text x="724" y="374" class="legend-label">6 players</text><text x="880" y="374" class="legend-value">404,628 (8.61%)</text><rect x="690" y="404" width="18" height="18" rx="3" fill="#0891b2" /><text x="724" y="420" class="legend-label">7 players</text><text x="880" y="420" class="legend-value">345,348 (7.35%)</text><rect x="690" y="450" width="18" height="18" rx="3" fill="#4f46e5" /><text x="724" y="466" class="legend-label">8 players</text><text x="880" y="466" class="legend-value">297,344 (6.33%)</text><rect x="690" y="496" width="18" height="18" rx="3" fill="#65a30d" /><text x="724" y="512" class="legend-label">9 players</text><text x="880" y="512" class="legend-value">269,930 (5.74%)</text><rect x="690" y="542" width="18" height="18" rx="3" fill="#be123c" /><text x="724" y="558" class="legend-label">10 players</text><text x="880" y="558" class="legend-value">456,243 (9.71%)</text><rect x="690" y="588" width="18" height="18" rx="3" fill="#7c3aed" /><text x="724" y="604" class="legend-label">11 players</text><text x="880" y="604" class="legend-value">3,385 (0.07%)</text><rect x="690" y="634" width="18" height="18" rx="3" fill="#0d9488" /><text x="724" y="650" class="legend-label">12 players</text><text x="880" y="650" class="legend-value">2,443 (0.05%)</text>
+  </g>
+  <text x="52" y="720" class="source">Source: /home/jz2003/ECS273/processed/nolimit_holdem/holdem_hands.jsonl</text>
+</svg>
