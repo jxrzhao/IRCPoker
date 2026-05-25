@@ -2,18 +2,18 @@
 """plot_player_style_distributions.py — distributions of player style metrics.
 
 Reads ``processed/nolimit_holdem/player_features.csv`` (output of
-``python -m poker_features``) and plots the marginal distribution of every
-style metric across all players. Every player is drawn as a single point,
-coloured by their ``net_amount`` (gross chips won minus gross chips bet) so
-the same chart reveals both the *shape* of each metric's distribution and
-the *outcome* of the players sitting at each point.
+``python -m poker_features``) and plots grouped marginal distributions of
+player style metrics. Every player is drawn as a single point, coloured by
+their ``net_amount`` (gross chips won minus gross chips bet) so each chart
+reveals both the *shape* of each metric's distribution and the *outcome* of
+the players sitting at each point.
 
-Metrics plotted (13 panels, auto-laid-out in a 5x3 grid):
+Metric groups plotted to separate images:
 
-    pre-flop:   VPIP, PFR, 3-bet, fold-to-3-bet, 4-bet, fold-to-4-bet
-    post-flop:  AF, Aggression %, C-bet, Donk
-    showdown:   WTSD, W$SD
-    outcome:    Win Rate
+    pre-flop:           VPIP, PFR, 3-bet, fold-to-3-bet, 4-bet, fold-to-4-bet
+    flop / turn / river: AF, C-bet, Donk, Fold %, Raise %
+    overall postflop:  AF, C-bet, Donk, Fold %, Raise %
+    showdown:          WTSD, W$SD, showdown hands
 
 Each panel has two stacked sub-axes:
 
@@ -24,11 +24,10 @@ Each panel has two stacked sub-axes:
            jitter only spreads the points vertically so they do not occlude
            each other; the vertical axis carries no quantitative meaning.
 
-A single shared colorbar on the right encodes ``net_amount`` with a diverging
-red/blue colormap centred at 0 (red = lost chips, blue = won chips). Because
-net_amount has very heavy tails (a handful of players are tens of thousands of
-chips up or down while most are near zero), we use a symmetric log
-normalisation (``SymLogNorm``):
+A single shared colorbar on the right encodes ``net_amount`` with a single-hue
+blue colormap. Because net_amount has very heavy tails (a handful of players
+are tens of thousands of chips up or down while most are near zero), we use a
+symmetric log normalisation (``SymLogNorm``):
 
   * Linear behaviour for |net_amount| <= ``linthresh`` (default = the median of
     |net_amount| over included players, so half of all players land in the
@@ -40,7 +39,7 @@ normalisation (``SymLogNorm``):
 Usage
 -----
     # Default: read processed/nolimit_holdem/player_features.csv,
-    # write PNG + SVG next to it.
+    # write grouped PNG + SVG files next to it.
     python scripts/plot_player_style_distributions.py
 
     # Restrict to players with enough sample size to be meaningful, override paths:
@@ -78,27 +77,59 @@ class Metric:
     key:    str   # column name in player_features.csv
     label:  str   # short axis title
     desc:   str   # one-line explanation under the label
+    equation: str # calculation equation shown in the panel title
     unit:   str   # "%" or "" — controls x-axis ticker formatting only
 
 
-METRICS: tuple[Metric, ...] = (
-    # ---- pre-flop style ------------------------------------------------
-    Metric("vpip_pct",         "VPIP",          "voluntary $ in pot, preflop",      "%"),
-    Metric("pfr_pct",          "PFR",           "preflop raise rate",               "%"),
-    Metric("3bet_pct",         "3-bet",         "raise facing 1 prior raise",       "%"),
-    Metric("fold_to_3bet_pct", "Fold-to-3-bet", "opener folds when 3-bet",          "%"),
-    Metric("4bet_pct",         "4-bet",         "raise facing 2 prior raises",      "%"),
-    Metric("fold_to_4bet_pct", "Fold-to-4-bet", "3-bettor folds when 4-bet",        "%"),
-    # ---- post-flop style ----------------------------------------------
-    Metric("af_ratio",         "AF",            "(bets+raises) / calls, postflop",  ""),
-    Metric("agg_pct",          "Aggression %",  "aggressive / all postflop actions","%"),
-    Metric("cbet_pct",         "C-bet",         "preflop aggressor bets the flop",  "%"),
-    Metric("donk_pct",         "Donk",          "OOP defender leads into PFR",      "%"),
-    # ---- showdown -----------------------------------------------------
-    Metric("wtsd_pct",         "WTSD",          "went to showdown | saw flop",      "%"),
-    Metric("wsd_pct",          "W$SD",          "won at showdown rate",             "%"),
-    # ---- outcome ------------------------------------------------------
-    Metric("win_rate",         "Win Rate",      "hands won / hands",                ""),
+@dataclass(frozen=True)
+class MetricFigure:
+    slug: str
+    title: str
+    metrics: tuple[Metric, ...]
+
+
+PREFLOP_METRICS: tuple[Metric, ...] = (
+    Metric("vpip_pct",         "VPIP",          "voluntary $ in pot, preflop",  "100 * VPIP hands / hands", "%"),
+    Metric("pfr_pct",          "PFR",           "preflop raise rate",           "100 * PFR hands / hands", "%"),
+    Metric("3bet_pct",         "3-bet",         "raise facing 1 prior raise",   "100 * made 3-bet / 3-bet opportunities", "%"),
+    Metric("fold_to_3bet_pct", "Fold-to-3-bet", "opener folds when 3-bet",      "100 * folded to 3-bet / faced 3-bet as opener", "%"),
+    Metric("4bet_pct",         "4-bet",         "raise facing 2 prior raises",  "100 * made 4-bet / 4-bet opportunities", "%"),
+    Metric("fold_to_4bet_pct", "Fold-to-4-bet", "3-bettor folds when 4-bet",    "100 * folded to 4-bet / faced 4-bet as 3-bettor", "%"),
+)
+
+
+def postflop_metrics(prefix: str, street_label: str) -> tuple[Metric, ...]:
+    """Return the five postflop metrics for one street or aggregate prefix."""
+    return (
+        Metric(f"{prefix}_af",        "AF",      f"aggression factor, {street_label}",      "(bets + raises) / calls", ""),
+        Metric(f"{prefix}_cbet_pct",  "C-bet",   f"continuation bet rate, {street_label}",  "100 * C-bets made / C-bet opportunities", "%"),
+        Metric(f"{prefix}_donk_pct",  "Donk",    f"donk lead rate, {street_label}",         "100 * donk bets made / donk opportunities", "%"),
+        Metric(f"{prefix}_fold_pct",  "Fold %",  f"fold rate facing aggression, {street_label}", "100 * folded facing bet-or-raise / faced bet-or-raise", "%"),
+        Metric(f"{prefix}_raise_pct", "Raise %", f"raise rate facing aggression, {street_label}", "100 * raised facing bet-or-raise / faced bet-or-raise", "%"),
+    )
+
+
+SHOWDOWN_METRICS: tuple[Metric, ...] = (
+    Metric("wtsd_pct",       "WTSD",           "went to showdown after seeing flop", "100 * showdown hands / flop saw hands", "%"),
+    Metric("wsd_pct",        "W$SD",           "won at showdown rate",               "100 * showdown wins / showdown hands", "%"),
+    Metric("showdown_hands", "Showdown Hands", "known pocket cards shown",           "count(hands with 2 shown pocket cards)", ""),
+)
+
+
+METRIC_FIGURES: tuple[MetricFigure, ...] = (
+    MetricFigure("preflop", "Preflop Style Metric Distributions", PREFLOP_METRICS),
+    MetricFigure("flop", "Flop Postflop Style Metric Distributions", postflop_metrics("flop", "flop")),
+    MetricFigure("turn", "Turn Postflop Style Metric Distributions", postflop_metrics("turn", "turn")),
+    MetricFigure("river", "River Postflop Style Metric Distributions", postflop_metrics("river", "river")),
+    MetricFigure("postflop", "Overall Postflop Style Metric Distributions", postflop_metrics("postflop", "all postflop streets")),
+    MetricFigure("showdown", "Showdown Metric Distributions", SHOWDOWN_METRICS),
+)
+
+
+ALL_METRICS: tuple[Metric, ...] = tuple(
+    metric
+    for figure in METRIC_FIGURES
+    for metric in figure.metrics
 )
 
 
@@ -138,7 +169,7 @@ def load_rows(path: Path, min_hands: int) -> tuple[dict[str, np.ndarray], np.nda
     net_amounts
         1D float array of net_amount (same length, same order).
     """
-    keys = tuple(m.key for m in METRICS)
+    keys = tuple(dict.fromkeys(m.key for m in ALL_METRICS))
     cols: dict[str, list[float]] = {k: [] for k in keys}
     net: list[float] = []
 
@@ -167,21 +198,22 @@ def load_rows(path: Path, min_hands: int) -> tuple[dict[str, np.ndarray], np.nda
 # Colour scale
 # ---------------------------------------------------------------------------
 
-def build_net_norm(net: np.ndarray, clip_pct: float) -> SymLogNorm:
+def build_color_norm(color_values: np.ndarray, clip_pct: float) -> SymLogNorm:
     """Construct a symmetric-log colour normalisation centred at 0.
 
-    The colour scale is symmetric so that "won 10k chips" and "lost 10k chips"
-    sit at equally saturated ends. We cap at the ``clip_pct``-th percentile of
-    ``|net|`` so a few outliers (millionaires / busted whales) don't drown out
-    the bulk of the distribution. The linear threshold defaults to the median
-    of ``|net|`` over the kept players, which puts roughly half the population
-    in the linear region of the scale.
+    The single-hue colour scale runs from the clipped lower net_amount tail to
+    the clipped upper tail, so stronger winners appear darker blue. We cap at
+    the ``clip_pct``-th percentile of ``|net_amount|`` so a few outliers don't
+    drown out the bulk of the distribution. The linear threshold defaults to
+    the median of ``|net_amount|`` over the kept players, which puts roughly
+    half the population in the linear
+    region of the scale.
     """
-    abs_net = np.abs(net[np.isfinite(net)])
-    if abs_net.size == 0:
+    abs_values = np.abs(color_values[np.isfinite(color_values)])
+    if abs_values.size == 0:
         return SymLogNorm(linthresh=1.0, vmin=-1.0, vmax=1.0, base=10)
-    vmax = max(float(np.percentile(abs_net, clip_pct)), 1.0)
-    linthresh = max(float(np.median(abs_net[abs_net > 0])) if (abs_net > 0).any() else 1.0, 1.0)
+    vmax = max(float(np.percentile(abs_values, clip_pct)), 1.0)
+    linthresh = max(float(np.median(abs_values[abs_values > 0])) if (abs_values > 0).any() else 1.0, 1.0)
     linthresh = min(linthresh, vmax / 10.0)  # keep at least one log decade
     return SymLogNorm(linthresh=linthresh, vmin=-vmax, vmax=vmax, base=10)
 
@@ -229,7 +261,7 @@ def plot_panel(
     outer_cell,
     metric: Metric,
     values: np.ndarray,
-    net: np.ndarray,
+    color_values: np.ndarray,
     cmap,
     norm,
     rng: np.random.Generator,
@@ -240,7 +272,7 @@ def plot_panel(
     """
     mask = np.isfinite(values)
     v = values[mask]
-    n = net[mask]
+    color_v = color_values[mask]
     xlim = _xlimits_for(metric, v)
     inner = outer_cell.subgridspec(2, 1, height_ratios=(1.0, 3.0), hspace=0.08)
     ax_hist = fig.add_subplot(inner[0])
@@ -253,16 +285,16 @@ def plot_panel(
     ax_hist.set_xticks([])
     _hide_spines(ax_hist, ("top", "right", "left", "bottom"))
     ax_hist.set_title(
-        f"{metric.label}    (n={v.size:,})\n{metric.desc}",
-        loc="left", fontsize=10, pad=6, linespacing=1.15,
+        f"{metric.label}    (n={v.size:,})\n{metric.desc}\n{metric.equation}",
+        loc="left", fontsize=9, pad=6, linespacing=1.15,
     )
 
     if v.size:
-        order = np.argsort(np.abs(n))  # draw extreme nets on top so colour is visible
+        order = np.argsort(np.abs(color_v))  # draw colour extremes on top so they remain visible
         y_jitter = rng.uniform(-0.4, 0.4, size=v.size)
         sc = ax_strip.scatter(
             v[order], y_jitter[order],
-            c=n[order], cmap=cmap, norm=norm,
+            c=color_v[order], cmap=cmap, norm=norm,
             s=7, alpha=0.55, linewidths=0,
         )
     else:
@@ -297,43 +329,45 @@ def _grid_shape(n_panels: int) -> tuple[int, int]:
 
 def _figure_size(rows: int, cols: int) -> tuple[float, float]:
     """Pick a sensible figure size for the given grid."""
-    return (5.5 * cols, 2.9 * rows + 1.5)
+    return (5.7 * cols, 3.2 * rows + 1.5)
 
 
-def plot_distributions(
+def _suffixed_path(path: Path, slug: str) -> Path:
+    """Append ``slug`` before the file extension in an output path."""
+    return path.with_name(f"{path.stem}_{slug}{path.suffix}")
+
+
+def plot_metric_figure(
+    figure_def: MetricFigure,
     metric_arrays: dict[str, np.ndarray],
-    net: np.ndarray,
+    color_values: np.ndarray,
     output_png: Path,
     output_svg: Path | None,
     clip_pct: float,
     seed: int,
-    cmap_name: str = "RdBu",
+    cmap_name: str = "Blues",
 ) -> None:
-    """Render the figure to ``output_png`` and optionally ``output_svg``.
-
-    The grid shape adapts to ``len(METRICS)`` so adding or removing metrics
-    only requires editing the ``METRICS`` tuple.
-    """
-    rows, cols = _grid_shape(len(METRICS))
+    """Render one metric group to ``output_png`` and optionally ``output_svg``."""
+    rows, cols = _grid_shape(len(figure_def.metrics))
     fig_w, fig_h = _figure_size(rows, cols)
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = GridSpec(
         rows, cols, figure=fig,
-        hspace=0.75, wspace=0.20,
+        hspace=0.80, wspace=0.20,
         left=0.05, right=0.90,
-        top=1 - 1.0 / fig_h, bottom=1.0 / fig_h,
+        top=1 - 1.45 / fig_h, bottom=1.0 / fig_h,
     )
 
     cmap = plt.get_cmap(cmap_name)
-    norm = build_net_norm(net, clip_pct=clip_pct)
+    norm = build_color_norm(color_values, clip_pct=clip_pct)
     rng  = np.random.default_rng(seed)
 
     last_sc = None
-    for i, metric in enumerate(METRICS):
+    for i, metric in enumerate(figure_def.metrics):
         r, c = divmod(i, cols)
         sc = plot_panel(
             fig, gs[r, c], metric,
-            metric_arrays[metric.key], net,
+            metric_arrays[metric.key], color_values,
             cmap, norm, rng,
         )
         last_sc = sc
@@ -341,18 +375,18 @@ def plot_distributions(
     if last_sc is not None:
         cax = fig.add_axes([0.92, 0.10, 0.018, 0.78])
         cbar = fig.colorbar(last_sc, cax=cax, extend="both")
-        cbar.set_label("net_amount  (chips won − chips bet)", fontsize=10)
+        cbar.set_label("net_amount  (chips won - chips bet)", fontsize=10)
         cbar.ax.tick_params(labelsize=9)
 
     fig.suptitle(
-        "Player style metric distributions, coloured by net chips won",
-        x=0.05, y=1 - 0.30 / fig_h, ha="left", fontsize=14, fontweight="bold",
+        figure_def.title,
+        x=0.05, y=1 - 0.35 / fig_h, ha="left", fontsize=14, fontweight="bold",
     )
     fig.text(
-        0.05, 1 - 0.65 / fig_h,
-        f"n = {np.isfinite(net).sum():,} players  ·  "
-        f"{len(METRICS)} style metrics  ·  "
-        "blue = winning  ·  red = losing  ·  SymLog colour scale",
+        0.05, 1 - 0.80 / fig_h,
+        f"n = {np.isfinite(color_values).sum():,} players  ·  "
+        f"{len(figure_def.metrics)} style metrics  ·  "
+        "darker blue = higher net_amount  ·  SymLog colour scale",
         ha="left", fontsize=9, color="#4b5563",
     )
 
@@ -362,6 +396,34 @@ def plot_distributions(
         output_svg.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output_svg)
     plt.close(fig)
+
+
+def plot_distributions(
+    metric_arrays: dict[str, np.ndarray],
+    color_values: np.ndarray,
+    output_png: Path,
+    output_svg: Path | None,
+    clip_pct: float,
+    seed: int,
+    cmap_name: str = "Blues",
+) -> list[Path]:
+    """Render all grouped metric figures and return the PNG paths written."""
+    written: list[Path] = []
+    for figure_def in METRIC_FIGURES:
+        group_png = _suffixed_path(output_png, figure_def.slug)
+        group_svg = _suffixed_path(output_svg, figure_def.slug) if output_svg is not None else None
+        plot_metric_figure(
+            figure_def=figure_def,
+            metric_arrays=metric_arrays,
+            color_values=color_values,
+            output_png=group_png,
+            output_svg=group_svg,
+            clip_pct=clip_pct,
+            seed=seed,
+            cmap_name=cmap_name,
+        )
+        written.append(group_png)
+    return written
 
 
 # ---------------------------------------------------------------------------
@@ -381,12 +443,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-png", type=Path,
         default=Path("processed/nolimit_holdem/player_style_distributions.png"),
-        help="PNG output path (default: %(default)s)",
+        help="base PNG output path; group slug is appended before the extension (default: %(default)s)",
     )
     parser.add_argument(
         "--output-svg", type=Path,
         default=Path("processed/nolimit_holdem/player_style_distributions.svg"),
-        help="SVG output path; pass an empty string to skip (default: %(default)s)",
+        help="base SVG output path; group slug is appended before the extension; pass an empty string to skip (default: %(default)s)",
     )
     parser.add_argument(
         "--min-hands", type=int, default=100,
@@ -401,8 +463,8 @@ def parse_args() -> argparse.Namespace:
         help="RNG seed for reproducible jitter (default: %(default)s)",
     )
     parser.add_argument(
-        "--cmap", type=str, default="RdBu",
-        help="diverging colormap name (default: %(default)s; reversed automatically would invert meaning)",
+        "--cmap", type=str, default="Blues",
+        help="single-hue colormap name (default: %(default)s)",
     )
     return parser.parse_args()
 
@@ -412,17 +474,17 @@ def main() -> None:
     if not args.input.exists():
         raise SystemExit(f"input not found: {args.input}")
 
-    metric_arrays, net = load_rows(args.input, min_hands=args.min_hands)
-    if net.size == 0:
+    metric_arrays, net_amount = load_rows(args.input, min_hands=args.min_hands)
+    if net_amount.size == 0:
         raise SystemExit(
             f"no players satisfy --min-hands {args.min_hands}; "
             f"nothing to plot."
         )
 
     output_svg = args.output_svg if str(args.output_svg) else None
-    plot_distributions(
+    written_pngs = plot_distributions(
         metric_arrays=metric_arrays,
-        net=net,
+        color_values=net_amount,
         output_png=args.output_png,
         output_svg=output_svg,
         clip_pct=args.clip_pct,
@@ -431,9 +493,10 @@ def main() -> None:
     )
 
     print(
-        f"wrote {args.output_png}"
-        + (f" and {output_svg}" if output_svg is not None else "")
-        + f"  (n = {net.size:,} players, min_hands = {args.min_hands})"
+        "wrote "
+        + ", ".join(str(path) for path in written_pngs)
+        + (f" and matching SVGs" if output_svg is not None else "")
+        + f"  (n = {net_amount.size:,} players, min_hands = {args.min_hands})"
     )
 
 

@@ -1,39 +1,61 @@
-"""Per-player feature accumulator + hand-level update + finalisation.
+"""Per-player feature accumulator, hand-level update, and finalisation.
 
-Two public entry points are intended for use by the pipeline:
+Public entry points used by the pipeline:
 
 * :func:`update_from_hand`
-    Given a per-name accumulator dictionary and a single hand dict, compute
-    cross-player events for the hand once (via
-    :mod:`poker_features.sequence`) and then update each involved player's
-    accumulator with both their own action stats and the cross-player flags.
+    Given the per-name accumulator dictionary and a single hand dict,
+    reconstruct the cross-player betting sequence ONCE for each street and
+    fan out per-player updates.
 
 * :func:`finalize_player`
-    Convert one filled :class:`PlayerAccumulator` into a flat dictionary of
-    derived features (the row that ends up in CSV / JSON).
+    Convert one populated :class:`PlayerAccumulator` into the flat dict that
+    is written to CSV / JSON.
 
-:data:`CSV_FIELDS` lists the output columns in their canonical order.
+:data:`CSV_FIELDS` lists the output columns in canonical order.
 
-Metric definitions
-------------------
-See the docstring of the top-level package and ``CSV_FIELDS`` below for the
-full list. The key additions over the v1 release are five **sequence-aware**
-metrics:
+Metric catalogue
+----------------
+Pre-flop (unchanged from v2)::
 
-    3bet_pct             100 * made_3bet / opp_3bet
+    vpip_pct             100 * vpip_hands / hands
+    pfr_pct              100 * pfr_hands  / hands
+    3bet_pct             100 * made_3bet  / opp_3bet
     fold_to_3bet_pct     100 * folded_to_3bet / faced_3bet_as_opener
-    4bet_pct             100 * made_4bet / opp_4bet
+    4bet_pct             100 * made_4bet  / opp_4bet
     fold_to_4bet_pct     100 * folded_to_4bet / faced_4bet_as_3better
-    donk_pct             100 * (OOP defender bet flop first) / (OOP defender saw flop)
 
-OOP-defender donk: a player who *called* the pre-flop aggressor's raise, was
-out-of-position post-flop, saw the flop, and fired the first bet (a "donk
-bet") rather than checking to the pre-flop raiser.
+Post-flop, computed independently for ``flop``, ``turn`` and ``river``
+(prefixes ``flop_``, ``turn_``, ``river_``) **and** as an aggregate over
+all three streets (prefix ``postflop_``)::
 
-The c-bet definition was tightened to require being the **last** pre-flop
-raiser (i.e. the pre-flop aggressor), not just any pre-flop raiser. In single-
-raised pots this is identical to the previous definition; in 3-bet+ pots it
-correctly attributes c-bets to the last aggressor.
+    *_af                 (bets + raises) / calls            on this street
+    *_cbet_pct           100 * cbet_made / cbet_opps        on this street
+    *_donk_pct           100 * donk_made / donk_opps        on this street
+    *_fold_pct           100 * hands folded-when-facing-bet / hands facing bet
+    *_raise_pct          100 * hands raised-when-facing-bet / hands facing bet
+
+C-bet chain across streets:
+
+    flop_cbet_opp  := preflop aggressor + saw flop
+    turn_cbet_opp  := flop aggressor    + saw turn
+    river_cbet_opp := turn aggressor    + saw river
+
+Donk chain (OOP defender leading into the previous street's aggressor):
+
+    flop_donk_opp  := not-PFR              + OOP rel. to PFR              + saw flop
+    turn_donk_opp  := not-flop-aggressor   + OOP rel. to flop aggressor   + saw turn
+    river_donk_opp := not-turn-aggressor   + OOP rel. to turn aggressor   + saw river
+
+A donk opportunity only exists when the previous street had aggression (i.e.
+an aggressor exists). If everyone checked the flop, no one has a turn-donk
+opportunity that hand.
+
+Showdown & outcome (unchanged)::
+
+    wtsd_pct             100 * showdown_hands / flop.saw_hands
+    wsd_pct              100 * showdown_wins  / showdown_hands
+    win_rate             wins / hands
+    chips_per_hand       net_amount / hands
 """
 
 from __future__ import annotations
@@ -43,35 +65,70 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .actions import (
-    AGGRESSIVE_ACTIONS,
-    CALL_ACTIONS,
-    CHECK_ACTIONS,
-    POSTFLOP_STAGES,
-    first_nonblind_is_bet,
     is_preflop_raiser,
     is_voluntary_preflop,
     stage_actions,
 )
 from .sequence import (
     PerPlayerPreflopEvents,
+    PerPlayerStreetEvents,
     acts_before,
+    analyze_postflop_street,
     analyze_preflop,
 )
 
 
 # ---------------------------------------------------------------------------
-# Accumulator
+# Per-street counter block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class StreetCounters:
+    """Accumulated event tallies for a single post-flop street.
+
+    ``saw_hands`` is the universal denominator for "would have been able to
+    do something on this street." Event counters (``bets`` ... ``folds``)
+    drive aggression factor. Per-hand binary tallies (``faced_aggression_*``,
+    ``cbet_*``, ``donk_*``) drive the percentage metrics.
+    """
+
+    # Event counters (each per-hand event)
+    bets:   int = 0  # first chips into the pot on this street
+    raises: int = 0  # raised an existing bet/raise
+    calls:  int = 0
+    checks: int = 0
+    folds:  int = 0
+
+    # Hand counters
+    saw_hands:                       int = 0  # saw the street at all (was a survivor coming in)
+    faced_aggression_hands:          int = 0  # had >=1 action while facing a bet/raise
+    folded_to_aggression_hands:      int = 0  # of the above, folded
+    raised_facing_aggression_hands:  int = 0  # of the above, raised
+
+    # C-bet chain (denominator depends on previous-street aggressor)
+    cbet_opp_hands:  int = 0
+    cbet_made_hands: int = 0
+
+    # Donk (denominator: OOP defender saw street + previous-street aggressor exists)
+    donk_opp_hands:  int = 0
+    donk_made_hands: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Player accumulator
 # ---------------------------------------------------------------------------
 
 @dataclass
 class PlayerAccumulator:
-    """Running counters used to derive a single player's features in a
-    streaming pass. All fields are raw integer event tallies; normalisation
-    happens in :func:`finalize_player`.
+    """Raw running counters for one player across the streaming pass.
+
+    Normalisation into rates / ratios happens once at the end in
+    :func:`finalize_player`; the accumulator itself stays in integer space so
+    it is cheap to update per hand and exactly reproducible.
     """
 
     # Volume
-    hands: int = 0
+    hands:         int = 0
     first_seen_ts: int | None = None
     last_seen_ts:  int | None = None
     months: set[str] = field(default_factory=set)
@@ -79,60 +136,92 @@ class PlayerAccumulator:
 
     # Pre-flop basic (single-string driven)
     vpip_hands: int = 0
-    pfr_hands: int = 0
+    pfr_hands:  int = 0
 
     # Pre-flop sequence-driven
-    opp_3bet_hands:                   int = 0
-    made_3bet_hands:                  int = 0
-    opener_facing_3bet_hands:         int = 0  # denominator of fold_to_3bet
-    folded_to_3bet_hands:             int = 0
-    opp_4bet_hands:                   int = 0
-    made_4bet_hands:                  int = 0
-    three_bettor_facing_4bet_hands:   int = 0  # denominator of fold_to_4bet
-    folded_to_4bet_hands:             int = 0
+    opp_3bet_hands:                 int = 0
+    made_3bet_hands:                int = 0
+    opener_facing_3bet_hands:       int = 0
+    folded_to_3bet_hands:           int = 0
+    opp_4bet_hands:                 int = 0
+    made_4bet_hands:                int = 0
+    three_bettor_facing_4bet_hands: int = 0
+    folded_to_4bet_hands:           int = 0
 
-    # Post-flop style (event-level over flop / turn / river)
-    postflop_bets_raises: int = 0
-    postflop_calls: int = 0
-    postflop_checks: int = 0
-
-    # Continuation bet (last pre-flop raiser fires the flop)
-    cbet_opps: int = 0
-    cbet_made: int = 0
-
-    # Donk bet (OOP defender leads into the pre-flop aggressor)
-    donk_opps: int = 0
-    donk_made: int = 0
-
-    # Post-flop saw-flop count (denominator for WTSD)
-    saw_flop_hands: int = 0
+    # Post-flop, per street
+    flop:  StreetCounters = field(default_factory=StreetCounters)
+    turn:  StreetCounters = field(default_factory=StreetCounters)
+    river: StreetCounters = field(default_factory=StreetCounters)
 
     # Showdown
     showdown_hands: int = 0
     showdown_wins:  int = 0
 
     # Outcome
-    wins: int = 0
+    wins:       int = 0
     win_amount: int = 0
-    total_bet: int = 0
+    total_bet:  int = 0
     net_amount: int = 0
 
 
 # ---------------------------------------------------------------------------
-# Per-hand event tallying for a single player
+# Per-street helper
 # ---------------------------------------------------------------------------
 
-def _count_postflop_events(bets: list[dict], acc: PlayerAccumulator) -> None:
-    """Tally per-action bets/raises/calls/checks across flop, turn and river."""
-    for stage in POSTFLOP_STAGES:
-        for c in stage_actions(bets, stage):
-            if c in AGGRESSIVE_ACTIONS:
-                acc.postflop_bets_raises += 1
-            elif c in CALL_ACTIONS:
-                acc.postflop_calls += 1
-            elif c in CHECK_ACTIONS:
-                acc.postflop_checks += 1
+def _update_street(
+    counters: StreetCounters,
+    events: PerPlayerStreetEvents | None,
+    *,
+    is_prev_street_aggressor: bool,
+    prev_street_aggressor_position: int | None,
+    my_position: int,
+    num_players: int,
+) -> None:
+    """Fold one hand's per-street events into the player's running counters.
 
+    ``is_prev_street_aggressor`` is True iff this player was the player whose
+    c-bet on THIS street we are tracking (the pre-flop aggressor for the
+    flop, the flop aggressor for the turn, etc.).
+
+    ``prev_street_aggressor_position`` is that same aggressor's position; it
+    is needed independently because the donk denominator requires this
+    player to be OOP relative to that aggressor.
+    """
+    if events is None or not events.saw_street:
+        return
+
+    counters.saw_hands += 1
+    counters.bets   += events.bets
+    counters.raises += events.raises
+    counters.calls  += events.calls
+    counters.checks += events.checks
+    counters.folds  += events.folds
+
+    if events.faced_aggression:
+        counters.faced_aggression_hands += 1
+        if events.folded_to_aggression:
+            counters.folded_to_aggression_hands += 1
+        if events.raised_facing_aggression:
+            counters.raised_facing_aggression_hands += 1
+
+    if is_prev_street_aggressor:
+        counters.cbet_opp_hands += 1
+        if events.was_first_aggressor:
+            counters.cbet_made_hands += 1
+
+    if (
+        prev_street_aggressor_position is not None
+        and my_position != prev_street_aggressor_position
+        and acts_before(my_position, prev_street_aggressor_position, num_players)
+    ):
+        counters.donk_opp_hands += 1
+        if events.was_first_aggressor:
+            counters.donk_made_hands += 1
+
+
+# ---------------------------------------------------------------------------
+# Per-hand update for a single player
+# ---------------------------------------------------------------------------
 
 def update_player(
     acc: PlayerAccumulator,
@@ -140,17 +229,21 @@ def update_player(
     hand_meta: dict,
     *,
     preflop_events: PerPlayerPreflopEvents,
-    is_last_preflop_raiser: bool,
-    is_oop_defender: bool,
+    flop_events:    PerPlayerStreetEvents | None,
+    turn_events:    PerPlayerStreetEvents | None,
+    river_events:   PerPlayerStreetEvents | None,
+    preflop_aggressor: int | None,
+    flop_aggressor:    int | None,
+    turn_aggressor:    int | None,
+    num_players: int,
 ) -> None:
     """Update ``acc`` with the events of one hand for one player.
 
-    The cross-player flags (``preflop_events``, ``is_last_preflop_raiser``,
-    ``is_oop_defender``) must be pre-computed at the hand level by
-    :func:`update_from_hand` — they cannot be derived from this player's
-    action string alone.
+    Cross-player flags (per-street events and street aggressors) must be
+    pre-computed at the hand level by :func:`update_from_hand`.
     """
     acc.hands += 1
+    pos = player_data["position"]
 
     ts = hand_meta.get("timestamp")
     if isinstance(ts, int):
@@ -173,8 +266,8 @@ def update_player(
         acc.wins += 1
 
     # ---- showdown -------------------------------------------------------
-    # The PDB only records pocket cards when shown, so two known pocket cards
-    # is a tight proxy for "went to showdown".
+    # The PDB only records pocket cards when shown -> two known cards is a
+    # tight proxy for "went to showdown".
     pocket = player_data.get("pocket_cards") or []
     went_to_showdown = isinstance(pocket, list) and len(pocket) == 2
     if went_to_showdown:
@@ -185,8 +278,6 @@ def update_player(
     # ---- pre-flop, single-string driven --------------------------------
     bets    = player_data.get("bets") or []
     preflop = stage_actions(bets, "p")
-    flop    = stage_actions(bets, "f")
-
     if is_voluntary_preflop(preflop):
         acc.vpip_hands += 1
     if is_preflop_raiser(preflop):
@@ -211,20 +302,28 @@ def update_player(
         if e.folded_to_4bet:
             acc.folded_to_4bet_hands += 1
 
-    # ---- post-flop ------------------------------------------------------
-    if flop:
-        acc.saw_flop_hands += 1
-        first_was_bet = first_nonblind_is_bet(flop)
-        if is_last_preflop_raiser:
-            acc.cbet_opps += 1
-            if first_was_bet:
-                acc.cbet_made += 1
-        if is_oop_defender:
-            acc.donk_opps += 1
-            if first_was_bet:
-                acc.donk_made += 1
-
-    _count_postflop_events(bets, acc)
+    # ---- post-flop, per street ------------------------------------------
+    _update_street(
+        acc.flop, flop_events,
+        is_prev_street_aggressor=(preflop_aggressor is not None and pos == preflop_aggressor),
+        prev_street_aggressor_position=preflop_aggressor,
+        my_position=pos,
+        num_players=num_players,
+    )
+    _update_street(
+        acc.turn, turn_events,
+        is_prev_street_aggressor=(flop_aggressor is not None and pos == flop_aggressor),
+        prev_street_aggressor_position=flop_aggressor,
+        my_position=pos,
+        num_players=num_players,
+    )
+    _update_street(
+        acc.river, river_events,
+        is_prev_street_aggressor=(turn_aggressor is not None and pos == turn_aggressor),
+        prev_street_aggressor_position=turn_aggressor,
+        my_position=pos,
+        num_players=num_players,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -237,13 +336,8 @@ def update_from_hand(
 ) -> None:
     """Update each involved player's accumulator with the events of one hand.
 
-    This is the only function the streaming pipeline needs to call. It:
-
-      1. Indexes the hand's players by table position.
-      2. Reconstructs the pre-flop betting sequence once.
-      3. Derives ``is_last_preflop_raiser`` and ``is_oop_defender`` flags
-         for each player from the sequence result.
-      4. Delegates to :func:`update_player` for each player.
+    Reconstructs the global betting sequence for each of the four streets,
+    then fans out a per-player update with the relevant cross-player flags.
     """
     players = hand.get("players") or {}
     if not isinstance(players, dict):
@@ -256,9 +350,12 @@ def update_from_hand(
         "game":      hand.get("game"),
     }
 
-    # Index players by position, gather pre-flop action strings.
-    by_position:     dict[int, tuple[str, dict]] = {}
-    preflop_by_pos:  dict[int, str] = {}
+    by_position:    dict[int, tuple[str, dict]] = {}
+    preflop_by_pos: dict[int, str] = {}
+    flop_by_pos:    dict[int, str] = {}
+    turn_by_pos:    dict[int, str] = {}
+    river_by_pos:   dict[int, str] = {}
+
     for name, data in players.items():
         if not isinstance(data, dict):
             continue
@@ -266,25 +363,28 @@ def update_from_hand(
         if not isinstance(pos, int):
             continue
         by_position[pos] = (name, data)
-        preflop_by_pos[pos] = stage_actions(data.get("bets") or [], "p")
+        bets = data.get("bets") or []
+        preflop_by_pos[pos] = stage_actions(bets, "p")
+        flop_by_pos[pos]    = stage_actions(bets, "f")
+        turn_by_pos[pos]    = stage_actions(bets, "t")
+        river_by_pos[pos]   = stage_actions(bets, "r")
 
-    analysis = analyze_preflop(preflop_by_pos, num_players)
-    aggressor = analysis.last_raiser
+    pre  = analyze_preflop(preflop_by_pos, num_players)
+    flop  = analyze_postflop_street(flop_by_pos,  pre.survivors,  num_players)
+    turn  = analyze_postflop_street(turn_by_pos,  flop.survivors, num_players)
+    river = analyze_postflop_street(river_by_pos, turn.survivors, num_players)
 
     for pos, (name, data) in by_position.items():
-        events = analysis.per_player.get(pos) or PerPlayerPreflopEvents()
-        is_aggressor = (aggressor is not None) and (pos == aggressor)
-        is_oop_defender = (
-            aggressor is not None
-            and pos != aggressor
-            and pos in analysis.survivors
-            and acts_before(pos, aggressor, num_players)
-        )
         update_player(
             accs[name], data, meta,
-            preflop_events=events,
-            is_last_preflop_raiser=is_aggressor,
-            is_oop_defender=is_oop_defender,
+            preflop_events=pre.per_player.get(pos) or PerPlayerPreflopEvents(),
+            flop_events=flop.per_player.get(pos),
+            turn_events=turn.per_player.get(pos),
+            river_events=river.per_player.get(pos),
+            preflop_aggressor=pre.last_raiser,
+            flop_aggressor=flop.last_aggressor,
+            turn_aggressor=turn.last_aggressor,
+            num_players=num_players,
         )
 
 
@@ -293,28 +393,57 @@ def update_from_hand(
 # ---------------------------------------------------------------------------
 
 def _pct(num: int, denom: int, digits: int = 2) -> float | None:
-    """Return ``100 * num / denom`` rounded to ``digits`` decimals, or ``None``
-    if ``denom`` is zero. ``None`` (not ``0.0``) is used so that "no
-    observations" is never confused with "observed 0 %" downstream.
+    """Return ``100 * num / denom`` rounded to ``digits`` decimals.
+
+    Returns ``None`` (not ``0.0``) when ``denom`` is zero so "no
+    observations" never collapses into "observed 0 %".
     """
     return None if denom == 0 else round(100.0 * num / denom, digits)
 
 
 def _ratio(num: int, denom: int, digits: int = 4) -> float | None:
-    """Return ``num / denom`` rounded to ``digits`` decimals, or ``None`` if
+    """Return ``num / denom`` rounded to ``digits`` decimals, ``None`` when
     ``denom`` is zero."""
     return None if denom == 0 else round(num / denom, digits)
+
+
+def _street_metrics(s: StreetCounters, prefix: str) -> dict[str, float | None]:
+    """Derive the five per-street metrics for one street block."""
+    bets_raises = s.bets + s.raises
+    return {
+        f"{prefix}_af":         _ratio(bets_raises, s.calls),
+        f"{prefix}_cbet_pct":   _pct(s.cbet_made_hands,             s.cbet_opp_hands),
+        f"{prefix}_donk_pct":   _pct(s.donk_made_hands,             s.donk_opp_hands),
+        f"{prefix}_fold_pct":   _pct(s.folded_to_aggression_hands,  s.faced_aggression_hands),
+        f"{prefix}_raise_pct":  _pct(s.raised_facing_aggression_hands, s.faced_aggression_hands),
+    }
 
 
 def finalize_player(name: str, acc: PlayerAccumulator) -> dict[str, Any]:
     """Convert a populated :class:`PlayerAccumulator` into a flat row dict.
 
-    Percentages live in ``[0, 100]`` (or ``None``). Ratios are unbounded
-    (e.g. ``af_ratio``) and reported as ``None`` when their denominator is
-    zero. We use ``None`` rather than ``NaN`` so the same value round-trips
-    cleanly through both JSON (``null``) and CSV (empty cell).
+    Percentages live in ``[0, 100]`` (or ``None``). The aggression factor
+    ``*_af`` is an unbounded ratio. ``None`` is emitted whenever a metric's
+    denominator is zero, so the same value round-trips through both JSON
+    (``null``) and CSV (empty cell).
     """
-    return {
+    f, t, r = acc.flop, acc.turn, acc.river
+
+    # ---- overall postflop aggregates ----------------------------------------
+    total_bets   = f.bets   + t.bets   + r.bets
+    total_raises = f.raises + t.raises + r.raises
+    total_calls  = f.calls  + t.calls  + r.calls
+
+    total_cbet_opp  = f.cbet_opp_hands  + t.cbet_opp_hands  + r.cbet_opp_hands
+    total_cbet_made = f.cbet_made_hands + t.cbet_made_hands + r.cbet_made_hands
+    total_donk_opp  = f.donk_opp_hands  + t.donk_opp_hands  + r.donk_opp_hands
+    total_donk_made = f.donk_made_hands + t.donk_made_hands + r.donk_made_hands
+
+    total_faced  = f.faced_aggression_hands         + t.faced_aggression_hands         + r.faced_aggression_hands
+    total_folded = f.folded_to_aggression_hands     + t.folded_to_aggression_hands     + r.folded_to_aggression_hands
+    total_raised = f.raised_facing_aggression_hands + t.raised_facing_aggression_hands + r.raised_facing_aggression_hands
+
+    row: dict[str, Any] = {
         "player":         name,
         "hands":          acc.hands,
         "months_active":  len(acc.months),
@@ -326,22 +455,29 @@ def finalize_player(name: str, acc: PlayerAccumulator) -> dict[str, Any]:
         "vpip_pct":          _pct(acc.vpip_hands, acc.hands),
         "pfr_pct":           _pct(acc.pfr_hands,  acc.hands),
         # pre-flop sequence
-        "3bet_pct":          _pct(acc.made_3bet_hands,        acc.opp_3bet_hands),
-        "fold_to_3bet_pct":  _pct(acc.folded_to_3bet_hands,   acc.opener_facing_3bet_hands),
-        "4bet_pct":          _pct(acc.made_4bet_hands,        acc.opp_4bet_hands),
-        "fold_to_4bet_pct":  _pct(acc.folded_to_4bet_hands,   acc.three_bettor_facing_4bet_hands),
+        "3bet_pct":          _pct(acc.made_3bet_hands,      acc.opp_3bet_hands),
+        "fold_to_3bet_pct":  _pct(acc.folded_to_3bet_hands, acc.opener_facing_3bet_hands),
+        "4bet_pct":          _pct(acc.made_4bet_hands,      acc.opp_4bet_hands),
+        "fold_to_4bet_pct":  _pct(acc.folded_to_4bet_hands, acc.three_bettor_facing_4bet_hands),
+    }
 
-        # post-flop style
-        "af_ratio":  _ratio(acc.postflop_bets_raises, acc.postflop_calls),
-        "agg_pct":   _pct(
-            acc.postflop_bets_raises,
-            acc.postflop_bets_raises + acc.postflop_calls + acc.postflop_checks,
-        ),
-        "cbet_pct":  _pct(acc.cbet_made, acc.cbet_opps),
-        "donk_pct":  _pct(acc.donk_made, acc.donk_opps),
+    # per-street post-flop
+    row.update(_street_metrics(f, "flop"))
+    row.update(_street_metrics(t, "turn"))
+    row.update(_street_metrics(r, "river"))
 
+    # overall post-flop
+    row.update({
+        "postflop_af":        _ratio(total_bets + total_raises, total_calls),
+        "postflop_cbet_pct":  _pct(total_cbet_made, total_cbet_opp),
+        "postflop_donk_pct":  _pct(total_donk_made, total_donk_opp),
+        "postflop_fold_pct":  _pct(total_folded,    total_faced),
+        "postflop_raise_pct": _pct(total_raised,    total_faced),
+    })
+
+    row.update({
         # showdown
-        "wtsd_pct":       _pct(acc.showdown_hands, acc.saw_flop_hands),
+        "wtsd_pct":       _pct(acc.showdown_hands, f.saw_hands),
         "wsd_pct":        _pct(acc.showdown_wins,  acc.showdown_hands),
         "showdown_hands": acc.showdown_hands,
         "known_pocket_cards_hands": acc.showdown_hands,
@@ -353,14 +489,23 @@ def finalize_player(name: str, acc: PlayerAccumulator) -> dict[str, Any]:
         "total_bet":      acc.total_bet,
         "net_amount":     acc.net_amount,
         "chips_per_hand": _ratio(acc.net_amount, acc.hands),
-    }
+    })
+    return row
 
 
 CSV_FIELDS: list[str] = [
     "player", "hands", "months_active", "first_seen_ts", "last_seen_ts", "games",
+
     "vpip_pct", "pfr_pct",
     "3bet_pct", "fold_to_3bet_pct", "4bet_pct", "fold_to_4bet_pct",
-    "af_ratio", "agg_pct", "cbet_pct", "donk_pct",
+
+    "flop_af",  "flop_cbet_pct",  "flop_donk_pct",  "flop_fold_pct",  "flop_raise_pct",
+    "turn_af",  "turn_cbet_pct",  "turn_donk_pct",  "turn_fold_pct",  "turn_raise_pct",
+    "river_af", "river_cbet_pct", "river_donk_pct", "river_fold_pct", "river_raise_pct",
+
+    "postflop_af", "postflop_cbet_pct", "postflop_donk_pct",
+    "postflop_fold_pct", "postflop_raise_pct",
+
     "wtsd_pct", "wsd_pct", "showdown_hands", "known_pocket_cards_hands",
     "wins", "win_rate", "win_amount", "total_bet", "net_amount", "chips_per_hand",
 ]
