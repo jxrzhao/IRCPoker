@@ -1,130 +1,67 @@
-# IRC Poker Player Features
+# PokerProfiler
 
-This repository cleans manually downloaded IRC Poker no-limit hold'em archives
-and builds per-player feature tables from the cleaned hands.
+Visual analytics for playstyle profiling and exploit discovery from the
+[IRC Poker Database](http://poker.cs.ualberta.ca/irc_poker_database.html).
 
-Raw IRC data is not committed to this repository. Each user should download the
-archives locally and place them under `IRCdata/`.
+The backend cleans the raw IRC hold'em archives and builds a 30-metric
+behavioural fingerprint per player. The frontend is an interactive linked-view
+dashboard with three panels: a population distribution view, a chip-ledger
+graph, and a shark-vs-feeder radar diff.
 
-## Expected Layout
+Raw archives, cleaned JSONL, and generated CSV/JSON are all git-ignored, so you
+regenerate them locally with the steps below.
 
-From the repository root:
+## Requirements
 
-```text
-ECS273/
-  IRCdata/
-    nolimit.*.tgz
-  poker_features/
-  scripts/
-```
+- Python 3 (standard library only for the pipeline; `matplotlib` + `numpy` only
+  if you want the offline validation plots)
+- Node.js 18+ for the frontend
 
-`IRCdata/`, archive files, JSONL files, CSV files, and JSON outputs are ignored
-by git so local data and generated artifacts stay out of commits.
+## 1. Get the data
 
-## 1. Download IRC Data
-
-Download the IRC Poker data manually, then copy the no-limit hold'em archives
-into `IRCdata/`.
-
-```bash
-mkdir -p IRCdata
-```
-
-The cleaner looks for files matching `nolimit.*.tgz` by default. If you only
-want specific archive prefixes, such as `holdem1`, `holdem2`, `holdem3`, or
-`holdempot`, use the `--games` option shown below.
-
-## 2. Clean No-Limit Hold'em Hands
-
-Run the cleaner from the repository root:
-
-```bash
-python scripts/clean_nolimit_holdem.py
-```
-
-Default inputs and outputs:
-
-- Input archives: `IRCdata/nolimit.*.tgz`
-- Cleaned hands: `processed/nolimit_holdem/nolimit.all.jsonl`
-- Monthly summary CSV: `processed/nolimit_holdem/summary_by_month.csv`
-- Summary JSON: `processed/nolimit_holdem/summary.json`
-
-To clean only selected hold'em game archives and write the standard
-`holdem_hands.jsonl` file expected by the player feature builder:
-
-```bash
-python scripts/clean_nolimit_holdem.py \
-  --games holdem1,holdem2,holdem3,holdempot
-```
-
-This writes:
+Download the IRC Poker Database archives and place the hold'em `.tgz` files under
+`IRCdata/` at the repo root:
 
 ```text
-processed/nolimit_holdem/holdem_hands.jsonl
+IRCdata/
+  holdem1.*.tgz  holdem2.*.tgz  holdem3.*.tgz  holdempot.*.tgz
 ```
 
-If the archives have already been extracted under `IRCdata/`, skip extraction
-and parse the existing extracted files:
+## 2. Run the backend pipeline
+
+From the repo root:
 
 ```bash
-python scripts/clean_nolimit_holdem.py --skip-extract
-```
+# Clean the raw archives -> processed/nolimit_holdem/holdem_hands.jsonl
+python scripts/clean_nolimit_holdem.py --games holdem1,holdem2,holdem3,holdempot
 
-## 3. Build Player Features
-
-The preferred feature builder is the `poker_features` package:
-
-```bash
+# Build the 30-metric fingerprint -> player_features.csv / .json
 python -m poker_features
+
+# Convert features into the frontend payload -> frontend/public/data/players.json
+python scripts/build_frontend_data.py
+
+# Build the chip-flow ledger -> frontend/public/data/ledger.json
+python scripts/build_chip_ledger.py
 ```
 
-Default inputs and outputs:
+After this, `frontend/public/data/` contains `players.json` and `ledger.json`,
+the two files the dashboard reads.
 
-- Input hands: `processed/nolimit_holdem/holdem_hands.jsonl`
-- Feature CSV: `processed/nolimit_holdem/player_features.csv`
-- Feature JSON: `processed/nolimit_holdem/player_features.json`
-
-Use `--min-hands` to drop low-volume players before downstream analysis:
+## 3. Run the frontend
 
 ```bash
-python -m poker_features --min-hands 50
+cd frontend
+npm install
+npm run dev
 ```
 
-Use `--max-hands` for a quick smoke test:
+Open the printed URL (default http://localhost:5173).
 
-```bash
-python -m poker_features --max-hands 10000 --min-hands 5
+## Project layout
+
+```text
+poker_features/   feature pipeline (clean hands -> 30-metric fingerprint)
+scripts/          clean_nolimit_holdem.py, build_frontend_data.py, build_chip_ledger.py
+frontend/         Vite + React + D3 dashboard
 ```
-
-Use explicit paths when the cleaned file is not the default:
-
-```bash
-python -m poker_features \
-  --input processed/nolimit_holdem/nolimit.all.jsonl \
-  --output-csv processed/nolimit_holdem/player_features.csv \
-  --output-json processed/nolimit_holdem/player_features.json
-```
-
-The old script entry point is still available as a compatibility wrapper:
-
-```bash
-python scripts/build_player_features.py
-```
-
-## End-to-End Example
-
-For the common hold'em workflow:
-
-```bash
-mkdir -p IRCdata
-# Manually download/copy IRC no-limit hold'em .tgz archives into IRCdata/.
-
-python scripts/clean_nolimit_holdem.py \
-  --games holdem1,holdem2,holdem3,holdempot
-
-python -m poker_features --min-hands 50
-```
-
-After this completes, use
-`processed/nolimit_holdem/player_features.csv` for analysis, clustering, or
-visualization.

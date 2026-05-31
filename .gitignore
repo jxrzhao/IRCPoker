@@ -1,17 +1,13 @@
-.agents
+# env
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.development
-.env.test
-.env.production
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+.agents
 
+# editor / tooling
+.claude/
+.venv/
+
+# generated data (regenerate via the pipeline, see README)
 *.jsonl
 *.csv
 *.json
@@ -19,10 +15,8 @@
 *.log
 *.err
 *.out
-*.log.*
-*.err.*
-*.out.*
 
+# raw archives
 *.tgz
 *.tar.gz
 *.tar.bz2
@@ -30,11 +24,10 @@
 *.tar.lzma
 *.tar.lz
 *.tar.z
-*.tar.gz.part
-*.tar.bz2.part
-*.tar.xz.part
-*.tar.lzma.part
-*.tar.lz.part
 *.zip
-
 IRCdata/
+
+# python / os cruft
+__pycache__/
+*.py[cod]
+.DS_Store
