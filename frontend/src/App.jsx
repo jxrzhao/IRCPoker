@@ -38,6 +38,9 @@ export default function App() {
   // deferred copy so dragging stays smooth: React keeps the old chart on screen
   // and recomputes once the drag settles instead of on every tick.
   const deferredMinHands = useDeferredValue(minHands);
+  // The feeder-count slider lives in the radar but also re-seats the heavier
+  // poker table; defer the copy the table consumes so dragging stays smooth.
+  const deferredFeederCount = useDeferredValue(feederCount);
   const players = useMemo(
     () => allPlayers.filter((p) => p.hands >= deferredMinHands),
     [allPlayers, deferredMinHands],
@@ -85,7 +88,7 @@ export default function App() {
             feeders={feeders}
             selectedSharkId={activeShark?.id || null}
             onSelectShark={setSelectedSharkId}
-            feederCount={feederCount}
+            feederCount={deferredFeederCount}
           />
           <RadarDiff
             shark={sharkPlayer}

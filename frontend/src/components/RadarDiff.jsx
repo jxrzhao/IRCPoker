@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { KEY_METRICS, METRICS, formatMetric } from '../data/metrics.js';
 import { COLORS } from '../data/colors.js';
 
@@ -51,6 +52,8 @@ export default function RadarDiff({
   feederCount = 8,
   onFeederCount,
 }) {
+  const [tip, setTip] = useState(null); // { x, y, metric } in viewport coords
+  const [hoverKey, setHoverKey] = useState(null); // axis highlighted from a hypothesis row
   const maxFeeders = Math.max(1, feeders.length);
   const count = Math.min(feederCount, maxFeeders);
   const shownFeeders = useMemo(() => feeders.slice(0, count), [feeders, count]);
@@ -173,17 +176,58 @@ export default function RadarDiff({
           />
           {KEY_METRICS.map((m, i) => {
             const ang = (i / KEY_METRICS.length) * 2 * Math.PI - Math.PI / 2;
-            const rr = norm(shark.metrics[m.key], stats[m.key]) * R;
-            return (
+            const ca = Math.cos(ang);
+            const sa = Math.sin(ang);
+            const sr = norm(shark.metrics[m.key], stats[m.key]) * R;
+            const fr = norm(feederMean[m.key], stats[m.key]) * R;
+            const sx = CX + sr * ca;
+            const sy = CY + sr * sa;
+            const fx = CX + fr * ca;
+            const fy = CY + fr * sa;
+            const active = tip?.metric.key === m.key || hoverKey === m.key;
+            const show = (e) => setTip({ x: e.clientX, y: e.clientY, metric: m });
+            const hit = (cx, cy, key) => (
               <circle
-                key={m.key}
-                cx={CX + rr * Math.cos(ang)}
-                cy={CY + rr * Math.sin(ang)}
-                r="2.6"
-                fill={COLORS.gold}
-                stroke="#fff"
-                strokeWidth="0.8"
+                key={key}
+                cx={cx}
+                cy={cy}
+                r="11"
+                fill="transparent"
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={show}
+                onMouseMove={show}
+                onMouseLeave={() => setTip(null)}
               />
+            );
+            return (
+              <g key={m.key}>
+                {active && (
+                  <>
+                    <circle cx={sx} cy={sy} r="7" fill={COLORS.gold} fillOpacity="0.22" className="radar-pulse" />
+                    <circle cx={fx} cy={fy} r="7" fill={COLORS.red} fillOpacity="0.22" className="radar-pulse" />
+                  </>
+                )}
+                <circle
+                  cx={sx}
+                  cy={sy}
+                  r={active ? 4.6 : 2.6}
+                  fill={COLORS.gold}
+                  stroke="#fff"
+                  strokeWidth={active ? 1.4 : 0.8}
+                  className="radar-vertex"
+                />
+                <circle
+                  cx={fx}
+                  cy={fy}
+                  r={active ? 4.2 : 2.4}
+                  fill={COLORS.red}
+                  stroke="#fff"
+                  strokeWidth={active ? 1.4 : 0.8}
+                  className="radar-vertex"
+                />
+                {hit(sx, sy, `hs-${m.key}`)}
+                {hit(fx, fy, `hf-${m.key}`)}
+              </g>
             );
           })}
         </svg>
@@ -193,8 +237,15 @@ export default function RadarDiff({
           <div className="hyp-sub">largest fingerprint gaps (any street)</div>
           {hypotheses.map((h) => {
             const dir = h.diff > 0 ? 'more' : 'less';
+            const onRadar = AXIS_KEYS.includes(h.key);
             return (
-              <div className="hyp-row" key={h.key}>
+              <div
+                className={`hyp-row ${hoverKey === h.key ? 'active' : ''}`}
+                key={h.key}
+                onMouseEnter={() => onRadar && setHoverKey(h.key)}
+                onMouseLeave={() => setHoverKey(null)}
+                style={{ cursor: onRadar ? 'pointer' : 'default' }}
+              >
                 <div className="hyp-bar-wrap">
                   <div
                     className="hyp-bar"
@@ -205,7 +256,9 @@ export default function RadarDiff({
                   />
                 </div>
                 <div className="hyp-text">
-                  <b>{h.label}</b>: shark plays{' '}
+                  <b>{h.label}</b>
+                  {onRadar && <span className="hyp-onradar" title="shown on the radar">{'◈'}</span>}
+                  : shark plays{' '}
                   <span style={{ color: h.diff > 0 ? COLORS.gold : COLORS.red }}>{dir}</span>{' '}
                   ({formatMetric(h.sharkVal, h.unit)} vs {formatMetric(h.feederVal, h.unit)})
                 </div>
@@ -214,6 +267,20 @@ export default function RadarDiff({
           })}
         </div>
       </div>
+
+      {tip &&
+        createPortal(
+          <div className="dist-tip" style={{ left: tip.x + 14, top: tip.y + 14 }}>
+            <span className="dist-tip-name">{tip.metric.label}</span>
+            <span className="dist-tip-val">
+              shark {formatMetric(shark.metrics[tip.metric.key], tip.metric.unit)}
+            </span>
+            <span className="dist-tip-val">
+              feeders {formatMetric(feederMean[tip.metric.key], tip.metric.unit)}
+            </span>
+          </div>,
+          document.body,
+        )}
     </section>
   );
 }
