@@ -223,7 +223,7 @@ export default function ChipLedgerGraph({
                   y={y + r + 11}
                   textAnchor="middle"
                   fontFamily="var(--font-mono)"
-                  fontSize="9"
+                  fontSize="10.5"
                   fill={PARCHMENT}
                   style={{ pointerEvents: 'none' }}
                 >

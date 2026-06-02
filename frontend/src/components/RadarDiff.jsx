@@ -149,7 +149,7 @@ export default function RadarDiff({
                   y={ly}
                   textAnchor={Math.abs(lx - CX) < 6 ? 'middle' : lx > CX ? 'start' : 'end'}
                   dominantBaseline="middle"
-                  fontSize="9.5"
+                  fontSize="11"
                   fontFamily="var(--font-mono)"
                   fill={COLORS.inkSoft}
                 >

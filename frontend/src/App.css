@@ -123,7 +123,7 @@
   line-height: 1;
 }
 .control-unit {
-  font-size: 0.74rem;
+  font-size: 0.84rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   color: var(--header-ink-soft);
@@ -131,7 +131,7 @@
 }
 .control-hint {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.84rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -190,7 +190,7 @@
   border: none;
   color: var(--gold-deep);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.84rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -200,7 +200,7 @@
   color: var(--felt-deep);
 }
 .about-chevron {
-  font-size: 0.7rem;
+  font-size: 0.84rem;
   transition: transform 0.22s ease;
 }
 .about-bar.open .about-chevron {
@@ -266,7 +266,7 @@
   background: var(--felt);
   color: #f3ead4;
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.82rem;
   font-weight: 600;
 }
 .about-steps li b {
@@ -345,7 +345,7 @@
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.84rem;
   color: var(--ink-soft);
 }
 .sel-chip b {
@@ -358,7 +358,7 @@
 .app-footer {
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.82rem;
   color: var(--ink-faint);
   letter-spacing: 0.1em;
   text-transform: uppercase;

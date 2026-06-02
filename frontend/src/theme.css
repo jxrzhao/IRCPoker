@@ -59,10 +59,16 @@ body,
   height: 100%;
 }
 
+/* root font size: every rem-based size in the app scales from here, so bumping
+   this one value enlarges all text proportionally */
+html {
+  font-size: 18px;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 1rem;
   color: var(--ink);
   background-color: var(--bg);
   background-image:
@@ -156,7 +162,7 @@ h3 {
 }
 
 .panel-sub {
-  font-size: 0.72rem;
+  font-size: 0.84rem;
   color: var(--gold-deep);
   font-family: var(--font-mono);
   font-weight: 600;
@@ -167,7 +173,7 @@ h3 {
 /* eyebrow label helper */
 .eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.82rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -190,7 +196,7 @@ h3 {
   align-items: center;
   gap: 5px;
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: 0.82rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 2px 9px;
@@ -212,7 +218,7 @@ h3 {
 
 .placeholder-note {
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.82rem;
   color: var(--ink-faint);
   border: 1px dashed var(--hairline);
   border-radius: var(--radius-sm);
