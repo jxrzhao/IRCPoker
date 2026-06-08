@@ -29,14 +29,12 @@ frontend/public/data/players.json
 frontend/public/data/ledger.json
 ```
 
-If you already have those files, place them at those paths and skip to
-[Run the frontend](#4-run-the-frontend). Downloading the raw IRC archives and
-running the backend pipeline are only needed when you want to rebuild those JSON
-files from scratch.
+The two files are already included in this repo. Unless you want to run the backend pipeline from scratch, please jump to
+[Run the frontend](#4-run-the-frontend). 
 
 ## 2. Optional: get the raw IRC data
 
-Download the IRC Poker Database archives and place the hold'em `.tgz` files under
+Download the [IRC Poker Database](http://poker.cs.ualberta.ca/irc_poker_database.html) and place the hold'em `.tgz` files under
 `IRCdata/` at the repo root:
 
 ```text
