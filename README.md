@@ -1,3 +1,5 @@
+<img src="./PokerProfiler.jpg" alt="PokerProfiler dashboard cover" width="100%" />
+
 # PokerProfiler
 
 Visual analytics for playstyle profiling and exploit discovery from the
@@ -8,8 +10,9 @@ behavioural fingerprint per player. The frontend is an interactive linked-view
 dashboard with three panels: a population distribution view, a chip-ledger
 graph, and a shark-vs-feeder radar diff.
 
-Raw archives, cleaned JSONL, and generated CSV/JSON are all git-ignored, so you
-regenerate them locally with the steps below.
+Raw archives, cleaned JSONL, and generated CSV/JSON are all git-ignored. You can
+either provide the frontend JSON files yourself or regenerate them locally with
+the backend pipeline below.
 
 ## Requirements
 
@@ -17,7 +20,21 @@ regenerate them locally with the steps below.
   if you want the offline validation plots)
 - Node.js 18+ for the frontend
 
-## 1. Get the data
+## 1. Provide the frontend data
+
+The frontend only needs two files:
+
+```text
+frontend/public/data/players.json
+frontend/public/data/ledger.json
+```
+
+If you already have those files, place them at those paths and skip to
+[Run the frontend](#4-run-the-frontend). Downloading the raw IRC archives and
+running the backend pipeline are only needed when you want to rebuild those JSON
+files from scratch.
+
+## 2. Optional: get the raw IRC data
 
 Download the IRC Poker Database archives and place the hold'em `.tgz` files under
 `IRCdata/` at the repo root:
@@ -27,28 +44,28 @@ IRCdata/
   holdem1.*.tgz  holdem2.*.tgz  holdem3.*.tgz  holdempot.*.tgz
 ```
 
-## 2. Run the backend pipeline
+## 3. Optional: run the backend pipeline
 
 From the repo root:
 
 ```bash
 # Clean the raw archives -> processed/nolimit_holdem/holdem_hands.jsonl
-python scripts/clean_nolimit_holdem.py --games holdem1,holdem2,holdem3,holdempot
+python scripts/clean_nolimit_holdem.py --games holdem1,holdem2,holdem3,holdempot # Takes roughly 25 mins. The file ./processed/nolimit_holdem/holdem_hands.jsonl is about 7.92GB
 
 # Build the 30-metric fingerprint -> player_features.csv / .json
-python -m poker_features
+python -m poker_features # Takes roughly 2 hours.
 
 # Convert features into the frontend payload -> frontend/public/data/players.json
-python scripts/build_frontend_data.py
+python scripts/build_frontend_data.py # Quick
 
 # Build the chip-flow ledger -> frontend/public/data/ledger.json
-python scripts/build_chip_ledger.py
+python scripts/build_chip_ledger.py # Takes roughly 1 hour.
 ```
 
 After this, `frontend/public/data/` contains `players.json` and `ledger.json`,
 the two files the dashboard reads.
 
-## 3. Run the frontend
+## 4. Run the frontend
 
 ```bash
 cd frontend
